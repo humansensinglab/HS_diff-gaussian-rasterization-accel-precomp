@@ -15,11 +15,11 @@ import os
 os.path.dirname(os.path.abspath(__file__))
 
 setup(
-    name="diff-gaussian-rasterization-accel-precomp",
-    packages=['diff-gaussian-rasterization-accel-precomp'],
+    name="diff_gaussian_rasterization_accel_precomp",
+    packages=['diff_gaussian_rasterization_accel_precomp'],
     ext_modules=[
         CUDAExtension(
-            name="diff-gaussian-rasterization-accel-precomp._C",
+            name="diff_gaussian_rasterization_accel_precomp._C",
             sources=[
             "cuda_rasterizer/rasterizer_impl.cu",
             "cuda_rasterizer/forward.cu",
