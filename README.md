@@ -1,6 +1,15 @@
 # Differential Gaussian Rasterization
 Acceleraeted rasterization engine with precomputed features. Not stable!!!
 
+to include in code:
+
+ git submodule add https://github.com/humansensinglab/HS_diff-gaussian-rasterization-accel-precomp.git
+
+ and
+
+ pip install HS_diff-gaussian-rasterization-accel-precomp/
+ 
+
 Used as the rasterization engine for the paper "3D Gaussian Splatting for Real-Time Rendering of Radiance Fields". If you can make use of it in your own research, please be so kind to cite us.
 
 <section class="section" id="BibTeX">
