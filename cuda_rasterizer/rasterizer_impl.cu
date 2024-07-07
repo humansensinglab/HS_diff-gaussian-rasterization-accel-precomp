@@ -395,14 +395,14 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 	const int num_buck,
 	const int num_rend,
 	char* gs_list,
-	char* ranges,
-	char* bucket)
+	char* ranges)
 {
 	const float focal_y = height / (2.0f * tan_fovy);
 	const float focal_x = width / (2.0f * tan_fovx);
 
 	
-
+	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
+	dim3 block(BLOCK_X, BLOCK_Y, 1);
 	if(!precomp){
 
 		int num_rendered;
@@ -418,8 +418,7 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			radii = geomState.internal_radii;
 		}
 
-		dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
-		dim3 block(BLOCK_X, BLOCK_Y, 1);
+		
 
 		// Dynamically resize image-based auxiliary buffers during training
 		
@@ -530,9 +529,9 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		torch::TensorOptions options = torch::TensorOptions().dtype(torch::kInt32).device(device);
     	torch::Tensor binning_tensor = torch::from_blob(binningState.point_list, {static_cast<long>(num_rendered*sizeof(int))}, options);
 	 	torch::Tensor image_tensor = torch::from_blob(imgState.ranges, {static_cast<long>(width*height*2*sizeof(int))}, options);
-	*/
+	
 // Function to create a tensor from device memory pointer for ImageState
-
+*/
 
     	size_t ord_bin_size = required<OrderBin>(num_rendered);
 		char* ord_binning_chunkptr = gs_listBuffer(ord_bin_size);
@@ -546,28 +545,28 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		cudaMemcpy(ord_binningState.gaussian_list, binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToDevice);
 		
 
-
+		
         // Assuming you have variables `tile_grid` and `imgState`, `binningState` already defined
-        std::vector<int> imgStateRanges_final(tile_grid.x * tile_grid.y*2);
-		std::vector<uint2> imgStateRanges(tile_grid.x * tile_grid.y);
-        std::vector<int> binningStatePointList(num_rendered);
+        // std::vector<int> imgStateRanges_final(tile_grid.x * tile_grid.y*2);
+		// std::vector<uint2> imgStateRanges(tile_grid.x * tile_grid.y);
+        // std::vector<int> binningStatePointList(num_rendered);
 
 
-        // Copy data from device to host
-        CHECK_CUDA(cudaMemcpy(imgStateRanges.data(), imgState.ranges, tile_grid.x * tile_grid.y * sizeof(uint2), cudaMemcpyDeviceToHost), debug);
-        CHECK_CUDA(cudaMemcpy(binningStatePointList.data(), binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToHost), debug);	
+        // // Copy data from device to host
+        // CHECK_CUDA(cudaMemcpy(imgStateRanges.data(), imgState.ranges, tile_grid.x * tile_grid.y * sizeof(uint2), cudaMemcpyDeviceToHost), debug);
+        // CHECK_CUDA(cudaMemcpy(binningStatePointList.data(), binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToHost), debug);	
        
 
 
-        // Convert uint2 to int and store in the vector
-        for (size_t i = 0; i < tile_grid.x * tile_grid.y; ++i) {
-            imgStateRanges_final[i * 2] = static_cast<int>(imgStateRanges.data()[i].x);
-            imgStateRanges_final[i * 2 + 1] = static_cast<int>(imgStateRanges.data()[i].y);
+        // // Convert uint2 to int and store in the vector
+        // for (size_t i = 0; i < tile_grid.x * tile_grid.y; ++i) {
+        //     imgStateRanges_final[i * 2] = static_cast<int>(imgStateRanges.data()[i].x);
+        //     imgStateRanges_final[i * 2 + 1] = static_cast<int>(imgStateRanges.data()[i].y);
 			
-        }
+        // }
 
 
-
+		
 
 	
 		/*int* d_imgStateRanges_final;
@@ -602,8 +601,10 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		background,
 		out_color), debug)
 
+		  
+
 		CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);		
-        return std::make_tuple(num_rendered, bucket_sum, binningStatePointList, imgStateRanges_final);
+        return std::make_tuple(num_rendered, bucket_sum,std::vector<int>(), std::vector<int>());
 	}
 	// Let each tile blend its range of Gaussians independently in parallel
 	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
@@ -633,12 +634,22 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 
 	else{
 			
-			OrderImg rangesState = OrderImg::fromChunk(ranges, width * height);
+			OrderImg rangesState = OrderImg::fromChunk(ranges,tile_grid.x * tile_grid.y);
 			OrderBin gs_listState = OrderBin::fromChunk(gs_list, num_rend);
 			
 			size_t chunk_size = required<GeometryState>(P);
 			char* chunkptr = geometryBuffer(chunk_size);
 			GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
+
+			size_t img_chunk_size = required<ImageState>(width * height);
+			char* img_chunkptr = imageBuffer(img_chunk_size);
+			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
+			//printDevicePointer("imgState", img_chunkptr);
+
+
+			// size_t sample_chunk_size = required<SampleState>(num_buck);
+			// char* sample_chunkptr = sampleBuffer(sample_chunk_size);
+			// SampleState sampleState = SampleState::fromChunk(sample_chunkptr, num_buck);
 
 			if (radii == nullptr)
 			{
@@ -689,18 +700,33 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			//printDevicePointer("ranges", rangesState.ranges);
 			//printDevicePointer("list", gs_listState.gaussian_list);
 
-			size_t img_chunk_size = required<ImageState>(width * height);
-			char* img_chunkptr = imageBuffer(img_chunk_size);
-			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
-			//printDevicePointer("imgState", img_chunkptr);
 
+			//printDevicePointer("sampleState", sample_chunkptr);
 
+		      
+				// std::vector<int> rnn(tile_grid.x * tile_grid.y*2);
+				// cudaMemcpy(rnn.data(), ranges, sizeof(int)*tile_grid.x * tile_grid.y*2, cudaMemcpyDeviceToHost);
+				// std::vector<int> ss(num_rend);
+				// cudaMemcpy(ss.data(), gs_list, sizeof(int)*num_rend, cudaMemcpyDeviceToHost);
+				// printf("%d",num_buck);
+				// printf("%d",num_rend);
+				// for(int i =0; i<222; i++)
+				// 	printf("i= %d:  %d\n", i,rnn[i]);
+
+				// for(int i =0; i<222; i++)
+				// printf("i= %d:  %d\n", i,ss[i]);
+
+			
+			int num_tiles = tile_grid.x * tile_grid.y;
+			perTileBucketCount<<<(num_tiles + 255) / 256, 256>>>(num_tiles, rangesState.ranges, imgState.bucket_count);
+			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles), debug)
+			
+			// create a state to store. size is number is the total number of buckets * block_size
 			size_t sample_chunk_size = required<SampleState>(num_buck);
 			char* sample_chunkptr = sampleBuffer(sample_chunk_size);
 			SampleState sampleState = SampleState::fromChunk(sample_chunkptr, num_buck);
-			//printDevicePointer("sampleState", sample_chunkptr);
 
-			
+
 
 			// Let each tile blend its range of Gaussians independently in parallel
 		    const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
@@ -722,8 +748,9 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			imgState.max_contrib,
 			background,
 			out_color), debug)
-		
-			//printDevicePointer("out_color", out_color);
+
+			 //printDevicePointer("out_color", out_color);
+			
 			CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);
 			return std::make_tuple(num_rend, num_buck, std::vector<int>(), std::vector<int>());
 
@@ -953,18 +980,37 @@ void CudaRasterizer::Rasterizer::backward(
 	char* gs_list,
 	char* ranges)
 {
+	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
+
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
 	BinningState binningState;
 	ImageState imgState = ImageState::fromChunk(img_buffer, width * height);
 	SampleState sampleState = SampleState::fromChunk(sample_buffer, B);
 	OrderImg rangesState;
 	OrderBin gs_listState;
+	
 	if(!precomp){
 		binningState = BinningState::fromChunk(binning_buffer, R);
+		//printf("not precomp");
+		
 	}
 	else{
-		rangesState = OrderImg::fromChunk(ranges, width * height);
+		rangesState = OrderImg::fromChunk(ranges, tile_grid.x * tile_grid.y);
 		gs_listState = OrderBin::fromChunk(gs_list, R);
+
+		//printf("precomp");
+		// std::vector<int> rnn(tile_grid.x * tile_grid.y*2);
+		// cudaMemcpy(rnn.data(), rangesState.ranges, sizeof(int)*tile_grid.x * tile_grid.y*2, cudaMemcpyDeviceToHost);
+		// std::vector<int> ss(R);
+		// cudaMemcpy(ss.data(), gs_listState.gaussian_list, sizeof(int)*R, cudaMemcpyDeviceToHost);
+		// printf("%d",R);
+		// printf("%d",B);
+		// for(int i =0; i<222; i++)
+		// printf("i= %d:  %d\n", i,rnn[i]);
+
+		// for(int i =0; i<222; i++)
+		// printf("i= %d:  %d\n", i,ss[i]);
+
 
 	}
 
@@ -976,7 +1022,7 @@ void CudaRasterizer::Rasterizer::backward(
 	const float focal_y = height / (2.0f * tan_fovy);
 	const float focal_x = width / (2.0f * tan_fovx);
 
-	const dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
+	
 	const dim3 block(BLOCK_X, BLOCK_Y, 1);
 
 	// Compute loss gradients w.r.t. 2D mean position, conic matrix,
@@ -1008,7 +1054,8 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dopacity,
 		dL_dcolor), debug)
 	}else{
-		CHECK_CUDA(BACKWARD::render(
+		
+		CHECK_CUDA(BACKWARD::renderPre(
 		tile_grid,
 		block,
 		rangesState.ranges,
@@ -1061,5 +1108,6 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_ddc,
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
-		(glm::vec4*)dL_drot), debug)
+		(glm::vec4*)dL_drot,
+		precomp), debug)
 }

@@ -365,38 +365,47 @@ __global__ void preprocessCUDA(
 	float* dL_ddc,
 	float* dL_dsh,
 	glm::vec3* dL_dscale,
-	glm::vec4* dL_drot)
+	glm::vec4* dL_drot,
+	bool precomp)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
 		return;
 
-	float3 m = means[idx];
+	if(!precomp){
+		float3 m = means[idx];
 
-	// Taking care of gradients from the screenspace points
-	float4 m_hom = transformPoint4x4(m, proj);
-	float m_w = 1.0f / (m_hom.w + 0.0000001f);
+		// Taking care of gradients from the screenspace points
+		float4 m_hom = transformPoint4x4(m, proj);
+		float m_w = 1.0f / (m_hom.w + 0.0000001f);
 
-	// Compute loss gradient w.r.t. 3D means due to gradients of 2D means
-	// from rendering procedure
-	glm::vec3 dL_dmean;
-	float mul1 = (proj[0] * m.x + proj[4] * m.y + proj[8] * m.z + proj[12]) * m_w * m_w;
-	float mul2 = (proj[1] * m.x + proj[5] * m.y + proj[9] * m.z + proj[13]) * m_w * m_w;
-	dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
-	dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
-	dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
+		// Compute loss gradient w.r.t. 3D means due to gradients of 2D means
+		// from rendering procedure
+		glm::vec3 dL_dmean;
+		float mul1 = (proj[0] * m.x + proj[4] * m.y + proj[8] * m.z + proj[12]) * m_w * m_w;
+		float mul2 = (proj[1] * m.x + proj[5] * m.y + proj[9] * m.z + proj[13]) * m_w * m_w;
+		dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
+		dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
+		dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
 
-	// That's the second part of the mean gradient. Previous computation
-	// of cov2D and following SH conversion also affects it.
-	dL_dmeans[idx] += dL_dmean;
+		// That's the second part of the mean gradient. Previous computation
+		// of cov2D and following SH conversion also affects it.
+		dL_dmeans[idx] += dL_dmean;
 
-	// Compute gradient updates due to computing colors from SHs
-	if (shs)
-		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, dc, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_ddc, (glm::vec3*)dL_dsh);
+		// Compute gradient updates due to computing colors from SHs
+		if (shs)
+			computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, dc, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_ddc, (glm::vec3*)dL_dsh);
 
-	// Compute gradient updates due to computing covariance from scale/rotation
-	if (scales)
-		computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
+		// Compute gradient updates due to computing covariance from scale/rotation
+		if (scales)
+			computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
+		}
+
+	else{
+		if(shs)
+			computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, dc, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_ddc, (glm::vec3*)dL_dsh);
+	}
+	
 }
 
 template<uint32_t C>
@@ -579,6 +588,192 @@ PerGaussianRenderCUDA(
 		atomicAdd(&dL_dconic2D[gaussian_idx].y, Register_dL_dconic2D_y);
 		atomicAdd(&dL_dconic2D[gaussian_idx].w, Register_dL_dconic2D_w);
 		atomicAdd(&dL_dopacity[gaussian_idx], Register_dL_dopacity);
+		for (int ch = 0; ch < C; ++ch) {
+			atomicAdd(&dL_dcolors[gaussian_idx * C + ch], Register_dL_dcolors[ch]);
+		}
+	}
+}
+
+template<uint32_t C>
+__global__ void
+PerGaussianRenderPreCUDA(
+	const uint2* __restrict__ ranges,
+	const uint32_t* __restrict__ point_list,
+	int W, int H, int B,
+	const uint32_t* __restrict__ per_tile_bucket_offset,
+	const uint32_t* __restrict__ bucket_to_tile,
+	const float* __restrict__ sampled_T, const float* __restrict__ sampled_ar,
+	const float* __restrict__ bg_color,
+	const float2* __restrict__ points_xy_image,
+	const float4* __restrict__ conic_opacity,
+	const float* __restrict__ colors,
+	const float* __restrict__ final_Ts,
+	const uint32_t* __restrict__ n_contrib,
+	const uint32_t* __restrict__ max_contrib,
+	const float* __restrict__ pixel_colors,
+	const float* __restrict__ dL_dpixels,
+	float3* __restrict__ dL_dmean2D,
+	float4* __restrict__ dL_dconic2D,
+	float* __restrict__ dL_dopacity,
+	float* __restrict__ dL_dcolors
+) {
+	// global_bucket_idx = warp_idx
+	auto block = cg::this_thread_block();
+	auto my_warp = cg::tiled_partition<32>(block);
+	uint32_t global_bucket_idx = block.group_index().x * my_warp.meta_group_size() + my_warp.meta_group_rank();
+	bool valid_bucket = global_bucket_idx < (uint32_t) B;
+	if (!valid_bucket) return;
+
+	bool valid_splat = false;
+
+	uint32_t tile_id, bbm;
+	uint2 range;
+	int num_splats_in_tile, bucket_idx_in_tile;
+	int splat_idx_in_tile, splat_idx_global;
+
+	tile_id = bucket_to_tile[global_bucket_idx];
+	range = ranges[tile_id];
+	num_splats_in_tile = range.y - range.x;
+	// What is the number of buckets before me? what is my offset?
+	bbm = tile_id == 0 ? 0 : per_tile_bucket_offset[tile_id - 1];
+	bucket_idx_in_tile = global_bucket_idx - bbm;
+	splat_idx_in_tile = bucket_idx_in_tile * 32 + my_warp.thread_rank();
+	splat_idx_global = range.x + splat_idx_in_tile;
+	valid_splat = (splat_idx_in_tile < num_splats_in_tile);
+
+	// if first gaussian in bucket is useless, then others are also useless
+	if (bucket_idx_in_tile * 32 >= max_contrib[tile_id]) {
+		return;
+	}
+
+	// Load Gaussian properties into registers
+	int gaussian_idx = 0;
+	float2 xy = {0.0f, 0.0f};
+	float4 con_o = {0.0f, 0.0f, 0.0f, 0.0f};
+	float c[C] = {0.0f};
+	if (valid_splat) {
+		gaussian_idx = point_list[splat_idx_global];
+		xy = points_xy_image[gaussian_idx];
+		con_o = conic_opacity[gaussian_idx];
+		for (int ch = 0; ch < C; ++ch)
+			c[ch] = colors[gaussian_idx * C + ch];
+	}
+
+	// Gradient accumulation variables
+	float Register_dL_dmean2D_x = 0.0f;
+	float Register_dL_dmean2D_y = 0.0f;
+	float Register_dL_dconic2D_x = 0.0f;
+	float Register_dL_dconic2D_y = 0.0f;
+	float Register_dL_dconic2D_w = 0.0f;
+	float Register_dL_dopacity = 0.0f;
+	float Register_dL_dcolors[C] = {0.0f};
+	
+	// tile metadata
+	const uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;
+	const uint2 tile = {tile_id % horizontal_blocks, tile_id / horizontal_blocks};
+	const uint2 pix_min = {tile.x * BLOCK_X, tile.y * BLOCK_Y};
+
+	// values useful for gradient calculation
+	float T;
+	float T_final;
+	float last_contributor;
+	float ar[C];
+	float dL_dpixel[C];
+	const float ddelx_dx = 0.5 * W;
+	const float ddely_dy = 0.5 * H;
+
+	// iterate over all pixels in the tile
+	for (int i = 0; i < BLOCK_SIZE + 31; ++i) {
+		// SHUFFLING
+
+		// At this point, T already has my (1 - alpha) multiplied.
+		// So pass this ready-made T value to next thread.
+		T = my_warp.shfl_up(T, 1);
+		last_contributor = my_warp.shfl_up(last_contributor, 1);
+		T_final = my_warp.shfl_up(T_final, 1);
+		for (int ch = 0; ch < C; ++ch) {
+			ar[ch] = my_warp.shfl_up(ar[ch], 1);
+			dL_dpixel[ch] = my_warp.shfl_up(dL_dpixel[ch], 1);
+		}
+
+		// which pixel index should this thread deal with?
+		int idx = i - my_warp.thread_rank();
+		const uint2 pix = {pix_min.x + idx % BLOCK_X, pix_min.y + idx / BLOCK_X};
+		const uint32_t pix_id = W * pix.y + pix.x;
+		const float2 pixf = {(float) pix.x, (float) pix.y};
+		bool valid_pixel = pix.x < W && pix.y < H;
+		
+		// every 32nd thread should read the stored state from memory
+		// TODO: perhaps store these things in shared memory?
+		if (valid_splat && valid_pixel && my_warp.thread_rank() == 0 && idx < BLOCK_SIZE) {
+			T = sampled_T[global_bucket_idx * BLOCK_SIZE + idx];
+			for (int ch = 0; ch < C; ++ch)
+				ar[ch] = -pixel_colors[ch * H * W + pix_id] + sampled_ar[global_bucket_idx * BLOCK_SIZE * C + ch * BLOCK_SIZE + idx];
+			T_final = final_Ts[pix_id];
+			last_contributor = n_contrib[pix_id];
+			for (int ch = 0; ch < C; ++ch) {
+				dL_dpixel[ch] = dL_dpixels[ch * H * W + pix_id];
+			}
+		}
+
+		// do work
+		if (valid_splat && valid_pixel && 0 <= idx && idx < BLOCK_SIZE) {
+			if (W <= pix.x || H <= pix.y) continue;
+
+			if (splat_idx_in_tile >= last_contributor) continue;
+
+			// compute blending values
+			const float2 d = { xy.x - pixf.x, xy.y - pixf.y };
+			const float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y;
+			if (power > 0.0f) continue;
+			const float G = exp(power);
+			const float alpha = min(0.99f, con_o.w * G);
+			if (alpha < 1.0f / 255.0f) continue;
+			const float dchannel_dcolor = alpha * T;
+
+			// add the gradient contribution of this pixel to the gaussian
+			float bg_dot_dpixel = 0.0f;
+			float dL_dalpha = 0.0f;
+			for (int ch = 0; ch < C; ++ch) {
+				ar[ch] += T * alpha * c[ch];
+				const float &dL_dchannel = dL_dpixel[ch];
+				Register_dL_dcolors[ch] += dchannel_dcolor * dL_dchannel;
+				dL_dalpha += ((c[ch] * T) - (1.0f / (1.0f - alpha)) * (-ar[ch])) * dL_dchannel;
+
+				bg_dot_dpixel += bg_color[ch] * dL_dpixel[ch];
+			}
+			dL_dalpha += (-T_final / (1.0f - alpha)) * bg_dot_dpixel;
+			T *= (1.0f - alpha);
+
+
+			// Helpful reusable temporary variables
+			const float dL_dG = con_o.w * dL_dalpha;
+			const float gdx = G * d.x;
+			const float gdy = G * d.y;
+			const float dG_ddelx = -gdx * con_o.x - gdy * con_o.y;
+			const float dG_ddely = -gdy * con_o.z - gdx * con_o.y;
+
+			// accumulate the gradients
+			const float tmp_x = dL_dG * dG_ddelx * ddelx_dx;
+			Register_dL_dmean2D_x += tmp_x;
+			const float tmp_y = dL_dG * dG_ddely * ddely_dy;
+			Register_dL_dmean2D_y += tmp_y;
+
+			Register_dL_dconic2D_x += -0.5f * gdx * d.x * dL_dG;
+			Register_dL_dconic2D_y += -0.5f * gdx * d.y * dL_dG;
+			Register_dL_dconic2D_w += -0.5f * gdy * d.y * dL_dG;
+			Register_dL_dopacity += G * dL_dalpha;
+		}
+	}
+
+	// finally add the gradients using atomics
+	if (valid_splat) {
+		//atomicAdd(&dL_dmean2D[gaussian_idx].x, Register_dL_dmean2D_x);
+		//atomicAdd(&dL_dmean2D[gaussian_idx].y, Register_dL_dmean2D_y);
+		//atomicAdd(&dL_dconic2D[gaussian_idx].x, Register_dL_dconic2D_x);
+		//atomicAdd(&dL_dconic2D[gaussian_idx].y, Register_dL_dconic2D_y);
+		//atomicAdd(&dL_dconic2D[gaussian_idx].w, Register_dL_dconic2D_w);
+		//atomicAdd(&dL_dopacity[gaussian_idx], Register_dL_dopacity);
 		for (int ch = 0; ch < C; ++ch) {
 			atomicAdd(&dL_dcolors[gaussian_idx * C + ch], Register_dL_dcolors[ch]);
 		}
@@ -774,13 +969,16 @@ void BACKWARD::preprocess(
 	float* dL_ddc,
 	float* dL_dsh,
 	glm::vec3* dL_dscale,
-	glm::vec4* dL_drot)
+	glm::vec4* dL_drot,
+	bool precomp)
 {
 	// Propagate gradients for the path of 2D conic matrix computation. 
 	// Somewhat long, thus it is its own kernel rather than being part of 
 	// "preprocess". When done, loss gradient w.r.t. 3D means has been
-	// modified and gradient w.r.t. 3D covariance matrix has been computed.	
-	computeCov2DCUDA << <(P + 255) / 256, 256 >> > (
+	// modified and gradient w.r.t. 3D covariance matrix has been computed.
+	
+	if(!precomp){
+		computeCov2DCUDA << <(P + 255) / 256, 256 >> > (
 		P,
 		means3D,
 		radii,
@@ -793,6 +991,9 @@ void BACKWARD::preprocess(
 		dL_dconic,
 		(float3*)dL_dmean3D,
 		dL_dcov3D);
+
+	}
+
 
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
@@ -816,7 +1017,8 @@ void BACKWARD::preprocess(
 		dL_ddc,
 		dL_dsh,
 		dL_dscale,
-		dL_drot);
+		dL_drot,
+		precomp);
 }
 
 void BACKWARD::render(
@@ -843,6 +1045,52 @@ void BACKWARD::render(
 {
 	const int THREADS = 32;
 	PerGaussianRenderCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS>>>(
+		ranges,
+		point_list,
+		W, H, B,
+		per_bucket_tile_offset,
+		bucket_to_tile,
+		sampled_T, sampled_ar,
+		bg_color,
+		means2D,
+		conic_opacity,
+		colors,
+		final_Ts,
+		n_contrib,
+		max_contrib,
+		pixel_colors,
+		dL_dpixels,
+		dL_dmean2D,
+		dL_dconic2D,
+		dL_dopacity,
+		dL_dcolors
+		);
+}
+
+void BACKWARD::renderPre(
+	const dim3 grid, dim3 block,
+	const uint2* ranges,
+	const uint32_t* point_list,
+	int W, int H, int R, int B,
+	const uint32_t* per_bucket_tile_offset,
+	const uint32_t* bucket_to_tile,
+	const float* sampled_T, const float* sampled_ar,
+	const float* bg_color,
+	const float2* means2D,
+	const float4* conic_opacity,
+	const float* colors,
+	const float* final_Ts,
+	const uint32_t* n_contrib,
+	const uint32_t* max_contrib,
+	const float* pixel_colors,
+	const float* dL_dpixels,
+	float3* dL_dmean2D,
+	float4* dL_dconic2D,
+	float* dL_dopacity,
+	float* dL_dcolors)
+{
+	const int THREADS = 32;
+	PerGaussianRenderPreCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS>>>(
 		ranges,
 		point_list,
 		W, H, B,

@@ -48,7 +48,7 @@ std::function<float*(size_t N)> resizeFloatFunctional(torch::Tensor& t) {
     return lambda;
 }
 
-std::tuple<int, int,torch::Tensor, torch::Tensor,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<int, int,torch::Tensor , torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 RasterizeGaussiansCUDA(
 	const torch::Tensor& background,
 	const torch::Tensor& means3D,
@@ -74,7 +74,6 @@ RasterizeGaussiansCUDA(
 	const bool precomp,
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
-	const torch::Tensor& bucket,
 	const int num_buck,
 	const int num_rend
 	)
@@ -87,7 +86,6 @@ RasterizeGaussiansCUDA(
   const int H = image_height;
   const int W = image_width;
  
-
   auto int_opts = means3D.options().dtype(torch::kInt32);
   auto float_opts = means3D.options().dtype(torch::kFloat32);
 
@@ -115,6 +113,11 @@ RasterizeGaussiansCUDA(
 
   std::vector<int> imgStateRanges;
   std::vector<int> binningStatePointList;
+
+ 
+
+
+	
 
   if(P != 0)
   {
@@ -158,15 +161,19 @@ RasterizeGaussiansCUDA(
 		num_buck,
 		num_rend,
 		reinterpret_cast<char*>(gs_list.contiguous().data_ptr()),
-	    reinterpret_cast<char*>(ranges.contiguous().data_ptr()),
-		reinterpret_cast<char*>(bucket.contiguous().data_ptr()));
+	    reinterpret_cast<char*>(ranges.contiguous().data_ptr()));
 		
 		rendered = std::get<0>(tup);
 		num_buckets = std::get<1>(tup);
+
+		// if(store && !precomp){
+		// 	imgStateRanges = std::get<2>(tup);
+		// 	binningStatePointList = std::get<3>(tup);
+		// }
 		
 
   }	
-  return std::make_tuple(rendered, num_buckets, rangesBuffer,gs_listBuffer,out_color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer);
+  return std::make_tuple(rendered, num_buckets, rangesBuffer, gs_listBuffer, out_color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer);
 }
 
 std::tuple<int, int,std::vector<int>, std::vector<int>,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
@@ -299,8 +306,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges) 
 {
-	if(!precomp){
-		const int P = means3D.size(0);
+	
+  const int P = means3D.size(0);
   const int H = dL_dout_color.size(1);
   const int W = dL_dout_color.size(2);
   
@@ -363,10 +370,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   
 
   return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dmeans3D, dL_dcov3D, dL_ddc, dL_dsh, dL_dscales, dL_drotations);
-	}
-  
-  return std::make_tuple(torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor(), torch::Tensor());
 }
+  
+
 
 torch::Tensor markVisible(
 		torch::Tensor& means3D,

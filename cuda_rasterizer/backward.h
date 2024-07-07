@@ -42,6 +42,29 @@ namespace BACKWARD
 		float* dL_dopacity,
 		float* dL_dcolors);
 
+	void renderPre(
+		const dim3 grid, dim3 block,
+		const uint2* ranges,
+		const uint32_t* point_list,
+		int W, int H, int R, int B,
+		const uint32_t* per_bucket_tile_offset,
+		const uint32_t* bucket_to_tile,
+		const float* sampled_T, const float* sampled_ar,
+		const float* bg_color,
+		const float2* means2D,
+		const float4* conic_opacity,
+		const float* colors,
+		const float* final_Ts,
+		const uint32_t* n_contrib,
+		const uint32_t* max_contrib,
+		const float* pixel_colors,
+		const float* dL_dpixels,
+		float3* dL_dmean2D,
+		float4* dL_dconic2D,
+		float* dL_dopacity,
+		float* dL_dcolors);
+
+
 	void preprocess(
 		int P, int D, int M,
 		const float3* means,
@@ -66,7 +89,8 @@ namespace BACKWARD
 		float* dL_ddc,
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
-		glm::vec4* dL_drot);
+		glm::vec4* dL_drot,
+		bool precomp);
 }
 
 #endif

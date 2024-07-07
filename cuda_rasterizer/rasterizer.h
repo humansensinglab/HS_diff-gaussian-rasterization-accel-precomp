@@ -62,8 +62,7 @@ namespace CudaRasterizer
 			const int num_buck = 0,
 			const int num_rend = 0,
 			char* gs_list = nullptr,
-			char* ranges = nullptr,
-			char* bucket = nullptr);
+			char* ranges = nullptr);
 
 			static std::tuple<int,int> forwardPre(
 			std::function<char* (size_t)> geometryBuffer,

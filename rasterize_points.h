@@ -42,7 +42,6 @@ RasterizeGaussiansCUDA(
 	const bool precomp,
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
-	const torch::Tensor& bucket,
 	const int num_buck,
 	const int num_rend
 	);

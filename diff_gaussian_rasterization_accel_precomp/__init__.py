@@ -25,7 +25,7 @@ def validate_and_print_arguments(*args):
         if isinstance(arg, np.ndarray):
             print(f"Argument {i}: numpy array, shape: {arg.shape}, dtype: {arg.dtype}")
         elif isinstance(arg, torch.Tensor):
-            print(f"Argument {i}: torch tensor, shape: {arg.shape}, dtype: {arg.dtype}")
+            print(f"Argument {i}: torch tensor, shape: {arg}, dtype: {arg.dtype}")
         else:
             print(f"Argument {i}: {arg}")
 
@@ -96,7 +96,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raster_settings.using_precomp,
                 raster_settings.gaussian_list,
                 raster_settings.ranges,
-                raster_settings.bucket,
                 raster_settings.num_buck,
                 raster_settings.num_rend)
         
@@ -104,12 +103,12 @@ class _RasterizeGaussians(torch.autograd.Function):
         if raster_settings.using_precomp:
               
                #validate_and_print_arguments(*args)
-               #r = nvtx.start_range("precomp")
+               r = nvtx.start_range("precomp")
                num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
                
                
                
-               #nvtx.end_range(r)
+               nvtx.end_range(r)
                ctx.raster_settings = raster_settings
                ctx.num_rendered = num_rendered
                ctx.num_buckets = num_buckets
@@ -179,6 +178,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raster_settings.gaussian_list,
                 raster_settings.ranges)
 
+        
         # Compute gradients for relevant tensors by invoking backward method
         if raster_settings.debug:
             cpu_args = cpu_deep_copy_tuple(args) # Copy them before they can be corrupted
@@ -189,7 +189,11 @@ class _RasterizeGaussians(torch.autograd.Function):
                 print("\nAn error occured in backward. Writing snapshot_bw.dump for debugging.\n")
                 raise ex
         else:
+            
+             r = nvtx.start_range("backward")
              grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_dc, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)
+             nvtx.end_range(r)
+                
 
         grads = (
             grad_means3D,
@@ -223,7 +227,6 @@ class GaussianRasterizationSettings(NamedTuple):
     using_precomp : bool
     gaussian_list : torch.Tensor
     ranges : torch.Tensor
-    bucket : torch.Tensor
     num_buck : int
     num_rend : int
 
