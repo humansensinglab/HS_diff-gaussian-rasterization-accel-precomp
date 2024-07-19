@@ -97,23 +97,28 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raster_settings.gaussian_list,
                 raster_settings.ranges,
                 raster_settings.num_buck,
-                raster_settings.num_rend)
+                raster_settings.num_rend,
+                raster_settings.graphable,
+                raster_settings.img_buffer,
+                raster_settings.geom_buffer,
+                raster_settings.sample_buffer)
         
 
         if raster_settings.using_precomp:
               
                #validate_and_print_arguments(*args)
-               r = nvtx.start_range("precomp")
+               #print("i")
+               #r = nvtx.start_range("precomp")
                num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
                
                
                
-               nvtx.end_range(r)
+               #nvtx.end_range(r)
                ctx.raster_settings = raster_settings
                ctx.num_rendered = num_rendered
                ctx.num_buckets = num_buckets
                ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, geomBuffer, binningBuffer, imgBuffer, sampleBuffer)
-               return color, radii, None, None,None, num_rendered,0
+               return color, radii, None, None,None, num_rendered,0,0,0,0
         else:
             # Invoke C++/CUDA rasterizer
             if raster_settings.debug:
@@ -125,6 +130,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                     print("\nAn error occured in forward. Please forward snapshot_fw.dump for debugging.")
                     raise ex
             else:
+                #validate_and_print_arguments(*args)
                 r = nvtx.start_range("Non precomp")
                 num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)
                 nvtx.end_range(r)
@@ -136,9 +142,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             ctx.num_buckets = num_buckets
             ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, geomBuffer, binningBuffer, imgBuffer, sampleBuffer)
             if raster_settings.store_ordering:
-               
-                return color, radii, gaussian_list, ranges, None,num_rendered, num_buckets
-            return color, radii,  None, None, None,num_rendered, 0
+                return color, radii, gaussian_list, ranges, None,num_rendered, num_buckets, imgBuffer.size(), geomBuffer.size(), sampleBuffer.size()
+            return color, radii,  None, None, None,num_rendered, 0,0,0,0
 
     @staticmethod
     def backward(ctx, grad_out_color, *_):
@@ -177,7 +182,8 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raster_settings.using_precomp,
                 raster_settings.gaussian_list,
                 raster_settings.ranges)
-
+        
+        #validate_and_print_arguments(*args)
         
         # Compute gradients for relevant tensors by invoking backward method
         if raster_settings.debug:
@@ -229,6 +235,10 @@ class GaussianRasterizationSettings(NamedTuple):
     ranges : torch.Tensor
     num_buck : int
     num_rend : int
+    graphable : bool
+    img_buffer : torch.Tensor
+    geom_buffer : torch.Tensor
+    sample_buffer : torch.Tensor
 
 class GaussianRasterizer(nn.Module):
     def __init__(self, raster_settings):

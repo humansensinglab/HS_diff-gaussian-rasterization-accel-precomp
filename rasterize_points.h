@@ -43,7 +43,11 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
 	const int num_buck,
-	const int num_rend
+	const int num_rend,
+	const bool graphable, 
+	const torch::Tensor& img_buffer,
+	const torch::Tensor& geom_buffer,
+	const torch::Tensor& sample_buffer
 	);
 
 std::tuple<int, int, std::vector<int>, std::vector<int>,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>

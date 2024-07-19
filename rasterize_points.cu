@@ -75,7 +75,11 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
 	const int num_buck,
-	const int num_rend
+	const int num_rend,
+	const bool graphable, 
+	const torch::Tensor& img_buffer,
+	const torch::Tensor& geom_buffer,
+	const torch::Tensor& sample_buffer
 	)
 {
   if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
@@ -110,14 +114,6 @@ RasterizeGaussiansCUDA(
   
   int rendered = 0;
   int num_buckets = 0;
-
-  std::vector<int> imgStateRanges;
-  std::vector<int> binningStatePointList;
-
- 
-
-
-	
 
   if(P != 0)
   {
@@ -161,7 +157,11 @@ RasterizeGaussiansCUDA(
 		num_buck,
 		num_rend,
 		reinterpret_cast<char*>(gs_list.contiguous().data_ptr()),
-	    reinterpret_cast<char*>(ranges.contiguous().data_ptr()));
+	    reinterpret_cast<char*>(ranges.contiguous().data_ptr()),
+		graphable,
+		reinterpret_cast<char*>(img_buffer.contiguous().data_ptr()),
+	    reinterpret_cast<char*>(geom_buffer.contiguous().data_ptr()),
+		reinterpret_cast<char*>(sample_buffer.contiguous().data_ptr()));
 		
 		rendered = std::get<0>(tup);
 		num_buckets = std::get<1>(tup);
