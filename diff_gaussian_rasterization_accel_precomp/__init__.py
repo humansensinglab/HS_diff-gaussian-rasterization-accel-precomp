@@ -70,7 +70,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         raster_settings
     ):
 
-       
+        
         args = (
                 raster_settings.bg, 
                 means3D,
@@ -105,20 +105,25 @@ class _RasterizeGaussians(torch.autograd.Function):
         
 
         if raster_settings.using_precomp:
-              
+               
                #validate_and_print_arguments(*args)
                #print("i")
                #r = nvtx.start_range("precomp")
-               num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
                
+            
+
+            num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
                
+            
                
-               #nvtx.end_range(r)
-               ctx.raster_settings = raster_settings
-               ctx.num_rendered = num_rendered
-               ctx.num_buckets = num_buckets
-               ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, geomBuffer, binningBuffer, imgBuffer, sampleBuffer)
-               return color, radii, None, None,None, num_rendered,0,0,0,0
+
+
+            #nvtx.end_range(r)
+            ctx.raster_settings = raster_settings
+            ctx.num_rendered = num_rendered
+            ctx.num_buckets = num_buckets
+            ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, raster_settings.geom_buffer, binningBuffer, raster_settings.img_buffer, raster_settings.sample_buffer)
+            return color, radii, None, None,None, num_rendered,0,0,0,0
         else:
             # Invoke C++/CUDA rasterizer
             if raster_settings.debug:
@@ -180,8 +185,19 @@ class _RasterizeGaussians(torch.autograd.Function):
                 sampleBuffer,
                 raster_settings.debug,
                 raster_settings.using_precomp,
+                raster_settings.graphable,
                 raster_settings.gaussian_list,
-                raster_settings.ranges)
+                raster_settings.ranges,
+                raster_settings.dL_dmeans3D,
+                raster_settings.dL_dmeans2D,
+                raster_settings.dL_dcolors,
+                raster_settings.dL_dconic,
+                raster_settings.dL_dopacity,
+                raster_settings.dL_dcov3D,
+                raster_settings.dL_ddc,
+                raster_settings.dL_dsh,
+                raster_settings.dL_dscales,
+                raster_settings.dL_drotations)
         
         #validate_and_print_arguments(*args)
         
@@ -195,24 +211,41 @@ class _RasterizeGaussians(torch.autograd.Function):
                 print("\nAn error occured in backward. Writing snapshot_bw.dump for debugging.\n")
                 raise ex
         else:
-            
              r = nvtx.start_range("backward")
              grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_dc, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)
              nvtx.end_range(r)
                 
+                   
+        if(not raster_settings.graphable):
+        # if(1==1):
+            grads = (
+                grad_means3D,
+                grad_means2D,
+                grad_dc,
+                grad_sh,
+                grad_colors_precomp,
+                grad_opacities,
+                grad_scales,
+                grad_rotations,
+                grad_cov3Ds_precomp,
+                None,
+            )
+        else:  
+           
+            grads= (
+                raster_settings.dL_dmeans3D,
+                raster_settings.dL_dmeans2D,
+                raster_settings.dL_ddc,
+                raster_settings.dL_dsh,
+                raster_settings.dL_dcolors,
+                raster_settings.dL_dopacity,
+                raster_settings.dL_dscales,
+                raster_settings.dL_drotations,
+                raster_settings.dL_dcov3D,
+                None
+         ) 
+        
 
-        grads = (
-            grad_means3D,
-            grad_means2D,
-            grad_dc,
-            grad_sh,
-            grad_colors_precomp,
-            grad_opacities,
-            grad_scales,
-            grad_rotations,
-            grad_cov3Ds_precomp,
-            None,
-        )
 
         return grads
 
@@ -239,6 +272,17 @@ class GaussianRasterizationSettings(NamedTuple):
     img_buffer : torch.Tensor
     geom_buffer : torch.Tensor
     sample_buffer : torch.Tensor
+    dL_dmeans3D : torch.Tensor
+    dL_dmeans2D : torch.Tensor
+    dL_dcolors : torch.Tensor 
+    dL_dconic : torch.Tensor
+    dL_dopacity : torch.Tensor 
+    dL_dcov3D : torch.Tensor
+    dL_ddc : torch.Tensor
+    dL_dsh : torch.Tensor
+    dL_dscales : torch.Tensor
+    dL_drotations : torch.Tensor
+         
 
 class GaussianRasterizer(nn.Module):
     def __init__(self, raster_settings):

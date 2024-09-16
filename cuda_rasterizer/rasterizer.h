@@ -55,6 +55,7 @@ namespace CudaRasterizer
 			const float tan_fovx, float tan_fovy,
 			const bool prefiltered,
 			float* out_color,
+			cudaStream_t stream,
 			int* radii = nullptr,
 			bool debug = false,
 			const bool store = false,
@@ -68,36 +69,7 @@ namespace CudaRasterizer
 			char* geom_buff = nullptr,
 			char* sample_buff = nullptr);
 
-			static std::tuple<int,int> forwardPre(
-			std::function<char* (size_t)> geometryBuffer,
-			std::function<char* (size_t)> binningBuffer,
-			std::function<char* (size_t)> imageBuffer,
-			std::function<char* (size_t)> sampleBuffer,
-			const int P, int D, int M,
-			const float* background,
-			const int width, int height,
-			const float* means3D,
-			const float* dc,
-			const float* shs,
-			const float* colors_precomp,
-			const float* opacities,
-			const float* scales,
-			const float scale_modifier,
-			const float* rotations,
-			const float* cov3D_precomp,
-			const float* viewmatrix,
-			const float* projmatrix,
-			const float* cam_pos,
-			const float tan_fovx, float tan_fovy,
-			const bool prefiltered,
-			float* out_color,
-			const int* ranges,
-			const int* gs_list,
-			const int num_rend,
-			int* radii = nullptr,
-			bool debug = false,
-			const bool store = false
-			);
+			
 
 
 		static void backward(
@@ -117,6 +89,7 @@ namespace CudaRasterizer
 			const float* campos,
 			const float tan_fovx, float tan_fovy,
 			const int* radii,
+			cudaStream_t stream,
 			char* geom_buffer,
 			char* binning_buffer,
 			char* image_buffer,

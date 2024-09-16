@@ -31,7 +31,9 @@ setup(
                 "nvcc": [
                     "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/"),
                     "-Xcompiler=-rdynamic",
-                    "-lineinfo"
+                    "-lineinfo",
+                    "-g",
+                    "-w" 
                 ]
             }
         )

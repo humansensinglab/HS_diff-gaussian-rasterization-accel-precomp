@@ -262,7 +262,7 @@ void CudaRasterizer::Rasterizer::markVisible(
 		present);
 }
 
-CudaRasterizer::GeometryState CudaRasterizer::GeometryState::fromChunk(char*& chunk, size_t P)
+CudaRasterizer::GeometryState CudaRasterizer::GeometryState::fromChunk(char*& chunk, size_t P, cudaStream_t stream=0)
 {
 	GeometryState geom;
 	obtain(chunk, geom.depths, P, 128);
@@ -273,13 +273,13 @@ CudaRasterizer::GeometryState CudaRasterizer::GeometryState::fromChunk(char*& ch
 	obtain(chunk, geom.conic_opacity, P, 128);
 	obtain(chunk, geom.rgb, P * 3, 128);
 	obtain(chunk, geom.tiles_touched, P, 128);
-	cub::DeviceScan::InclusiveSum(nullptr, geom.scan_size, geom.tiles_touched, geom.tiles_touched, P);
+	cub::DeviceScan::InclusiveSum(nullptr, geom.scan_size, geom.tiles_touched, geom.tiles_touched, P,stream);
 	obtain(chunk, geom.scanning_space, geom.scan_size, 128);
 	obtain(chunk, geom.point_offsets, P, 128);
 	return geom;
 }
 
-CudaRasterizer::ImageState CudaRasterizer::ImageState::fromChunk(char*& chunk, size_t N)
+CudaRasterizer::ImageState CudaRasterizer::ImageState::fromChunk(char*& chunk, size_t N, cudaStream_t stream=0)
 {
 	ImageState img;
 	obtain(chunk, img.accum_alpha, N, 128);
@@ -287,14 +287,13 @@ CudaRasterizer::ImageState CudaRasterizer::ImageState::fromChunk(char*& chunk, s
 	obtain(chunk, img.ranges, N, 128);
 	int* dummy;
 	int* wummy;
-	cub::DeviceScan::InclusiveSum(nullptr, img.scan_size, dummy, wummy, N);
-	obtain(chunk, img.contrib_scan, img.scan_size, 128);
+	
 
 	obtain(chunk, img.max_contrib, N, 128);
 	obtain(chunk, img.pixel_colors, N * NUM_CHAFFELS, 128);
 	obtain(chunk, img.bucket_count, N, 128);
 	obtain(chunk, img.bucket_offsets, N, 128);
-	cub::DeviceScan::InclusiveSum(nullptr, img.bucket_count_scan_size, img.bucket_count, img.bucket_count, N);
+	cub::DeviceScan::InclusiveSum(nullptr, img.bucket_count_scan_size, img.bucket_count, img.bucket_count, N, stream);
 	obtain(chunk, img.bucket_count_scanning_space, img.bucket_count_scan_size, 128);
 
 	return img;
@@ -308,7 +307,7 @@ CudaRasterizer::SampleState CudaRasterizer::SampleState::fromChunk(char *& chunk
 	return sample;
 }
 
-CudaRasterizer::BinningState CudaRasterizer::BinningState::fromChunk(char*& chunk, size_t P)
+CudaRasterizer::BinningState CudaRasterizer::BinningState::fromChunk(char*& chunk, size_t P, cudaStream_t stream=0)
 {
 	BinningState binning;
 	obtain(chunk, binning.point_list, P, 128);
@@ -318,7 +317,7 @@ CudaRasterizer::BinningState CudaRasterizer::BinningState::fromChunk(char*& chun
 	cub::DeviceRadixSort::SortPairs(
 		nullptr, binning.sorting_size,
 		binning.point_list_keys_unsorted, binning.point_list_keys,
-		binning.point_list_unsorted, binning.point_list, P);
+		binning.point_list_unsorted, binning.point_list, P,0,sizeof(int) * 8, stream);
 	obtain(chunk, binning.list_sorting_space, binning.sorting_size, 128);
 	return binning;
 }
@@ -388,6 +387,7 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	float* out_color,
+	cudaStream_t stream,
 	int* radii,
 	bool debug,
 	const bool store,
@@ -414,7 +414,7 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 
 		size_t chunk_size = required<GeometryState>(P);
 		char* chunkptr = geometryBuffer(chunk_size);
-		GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
+		GeometryState geomState = GeometryState::fromChunk(chunkptr, P,stream);
 
 		if (radii == nullptr)
 		{
@@ -458,29 +458,30 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			geomState.conic_opacity,
 			tile_grid,
 			geomState.tiles_touched,
-			prefiltered
+			prefiltered,
+			stream
 		), debug)
 
 			size_t img_chunk_size = required<ImageState>(width * height);
 			char* img_chunkptr = imageBuffer(img_chunk_size);
-			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
+			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height, stream);
 			//printDevicePointer("....imgState", img_chunkptr);
 		// Compute prefix sum over full list of touched tile counts by Gaussians
 			// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
-			CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P), debug)
+			CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P,stream), debug)
 
 			// Retrieve total number of Gaussian instances to launch and resize aux buffers
 			
-			CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
-			
+			CHECK_CUDA(cudaMemcpyAsync(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost,stream), debug);
+			cudaStreamSynchronize(stream);
 			
 			size_t binning_chunk_size = required<BinningState>(num_rendered);
 			char* binning_chunkptr = binningBuffer(binning_chunk_size);
-			BinningState binningState = BinningState::fromChunk(binning_chunkptr, num_rendered);
+			BinningState binningState = BinningState::fromChunk(binning_chunkptr, num_rendered, stream);
 			
 			// For each instance to be rendered, produce adequate [ tile | depth ] key 
 			// and corresponding dublicated Gaussian indices to be sorted
-			duplicateWithKeys << <(P + 255) / 256, 256 >> > (
+			duplicateWithKeys << <(P + 255) / 256, 256 ,0,stream>> > (
 				P,
 				geomState.means2D,
 				geomState.conic_opacity,
@@ -501,13 +502,13 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 				binningState.sorting_size,
 				binningState.point_list_keys_unsorted, binningState.point_list_keys,
 				binningState.point_list_unsorted, binningState.point_list,
-				num_rendered, 0, 32 + bit), debug)
+				num_rendered, 0, 32 + bit,stream), debug)
 
-			CHECK_CUDA(cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2)), debug);
-
+			CHECK_CUDA(cudaMemsetAsync(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2),stream), debug);
+			cudaStreamSynchronize(stream);
 			// Identify start and end of per-tile workloads in sorted list
 			if (num_rendered > 0)
-				identifyTileRanges << <(num_rendered + 255) / 256, 256 >> > (
+				identifyTileRanges << <(num_rendered + 255) / 256, 256 ,0,stream>> > (
 					num_rendered,
 					binningState.point_list_keys,
 					imgState.ranges);
@@ -516,9 +517,10 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			// bucket count
 			int num_tiles = tile_grid.x * tile_grid.y;
 			perTileBucketCount<<<(num_tiles + 255) / 256, 256>>>(num_tiles, imgState.ranges, imgState.bucket_count);
-			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles), debug)
+			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles,stream), debug)
 			
-			CHECK_CUDA(cudaMemcpy(&bucket_sum, imgState.bucket_offsets + num_tiles - 1, sizeof(unsigned int), cudaMemcpyDeviceToHost), debug);
+			CHECK_CUDA(cudaMemcpyAsync(&bucket_sum, imgState.bucket_offsets + num_tiles - 1, sizeof(unsigned int), cudaMemcpyDeviceToHost,stream), debug);
+			cudaStreamSynchronize(stream);
 			// create a state to store. size is number is the total number of buckets * block_size
 			size_t sample_chunk_size = required<SampleState>(bucket_sum);
 			char* sample_chunkptr = sampleBuffer(sample_chunk_size);
@@ -537,8 +539,8 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		char* ord_image_chunkptr = rangesBuffer(ord_img_size);
 		OrderImg ord_imgState = OrderImg::fromChunk(ord_image_chunkptr,tile_grid.x * tile_grid.y);
 
-		cudaMemcpy(ord_imgState.ranges, imgState.ranges, tile_grid.x * tile_grid.y * sizeof(uint2), cudaMemcpyDeviceToDevice);
-		cudaMemcpy(ord_binningState.gaussian_list, binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToDevice);
+		cudaMemcpyAsync(ord_imgState.ranges, imgState.ranges, tile_grid.x * tile_grid.y * sizeof(uint2), cudaMemcpyDeviceToDevice,stream);
+		cudaMemcpyAsync(ord_binningState.gaussian_list, binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToDevice,stream);
 		
 		const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
 		CHECK_CUDA(FORWARD::render(
@@ -558,11 +560,13 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		imgState.n_contrib,
 		imgState.max_contrib,
 		background,
-		out_color), debug)
+		out_color,
+		stream), debug)
 
 		  
 
-		CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);		
+		CHECK_CUDA(cudaMemcpyAsync(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice,stream), debug);		
+		cudaStreamSynchronize(stream);
         return std::make_tuple(num_rendered, bucket_sum,std::vector<int>(), std::vector<int>());
 	}
 	// Let each tile blend its range of Gaussians independently in parallel
@@ -584,10 +588,12 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		imgState.n_contrib,
 		imgState.max_contrib,
 		background,
-		out_color), debug)
+		out_color,
+		stream), debug)
 	
 
-	 	CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);
+	 	CHECK_CUDA(cudaMemcpyAsync(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice,stream), debug);
+		cudaStreamSynchronize(stream);
         return std::make_tuple(num_rendered, bucket_sum, std::vector<int>(), std::vector<int>());
 	}
 
@@ -600,11 +606,11 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 		if(!graphable){
 			size_t chunk_size = required<GeometryState>(P);
 			char* chunkptr = geometryBuffer(chunk_size);
-			GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
+			GeometryState geomState = GeometryState::fromChunk(chunkptr, P, stream);
 
 			size_t img_chunk_size = required<ImageState>(width * height);
 			char* img_chunkptr = imageBuffer(img_chunk_size);
-			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
+			ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height, stream);
 			//printDevicePointer("imgState", img_chunkptr);
 
 			size_t sample_chunk_size = required<SampleState>(num_buck);
@@ -653,14 +659,15 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 				geomState.conic_opacity,
 				tile_grid,
 				geomState.tiles_touched,
-				prefiltered
+				prefiltered,
+				stream
 			), debug)
 			
 			
 			
 			int num_tiles = tile_grid.x * tile_grid.y;
-			perTileBucketCount<<<(num_tiles + 255) / 256, 256>>>(num_tiles, rangesState.ranges, imgState.bucket_count);
-			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles), debug)
+			perTileBucketCount<<<(num_tiles + 255) / 256, 256,0,stream>>>(num_tiles, rangesState.ranges, imgState.bucket_count);
+			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles,stream), debug)
 			
 
 
@@ -683,25 +690,27 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			imgState.n_contrib,
 			imgState.max_contrib,
 			background,
-			out_color), debug)
+			out_color,
+			stream), debug)
 
 			 //printDevicePointer("out_color", out_color);
 			
-			CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);
+			CHECK_CUDA(cudaMemcpyAsync(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice,stream), debug);
+			cudaStreamSynchronize(stream);
 			return std::make_tuple(num_rend, num_buck, std::vector<int>(), std::vector<int>());
 		}
 		else{
 
 
 			
-			GeometryState geomState = GeometryState::fromChunk(geom_buff, P);
-			ImageState imgState = ImageState::fromChunk(img_buff, width * height);
+			GeometryState geomState = GeometryState::fromChunk(geom_buff, P, stream);
+			ImageState imgState = ImageState::fromChunk(img_buff, width * height,stream);
 			SampleState sampleState = SampleState::fromChunk(sample_buff, num_buck);
 
 
 			if (radii == nullptr)
 			{
-				printf("pos si tu");
+			
 				radii = geomState.internal_radii;
 			}
 
@@ -713,7 +722,7 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			{
 				throw std::runtime_error("For non-RGB, provide precomputed Gaussian colors!");
 			}
-
+			
 			// Run preprocessing per-Gaussian (transformation, bounding, conversion of SHs to RGB)
 			CHECK_CUDA(FORWARD::preprocess(
 				P, D, M,
@@ -740,17 +749,18 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 				geomState.conic_opacity,
 				tile_grid,
 				geomState.tiles_touched,
-				prefiltered
+				prefiltered,
+				stream
 			), debug)
 			
 			
 			
 			int num_tiles = tile_grid.x * tile_grid.y;
-			perTileBucketCount<<<(num_tiles + 255) / 256, 256>>>(num_tiles, rangesState.ranges, imgState.bucket_count);
-			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles), debug)
+			perTileBucketCount<<<(num_tiles + 255) / 256, 256,0,stream>>>(num_tiles, rangesState.ranges, imgState.bucket_count);
+			CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles,stream), debug)
 			
 
-
+			
 			// Let each tile blend its range of Gaussians independently in parallel
 		    const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
 			CHECK_CUDA(FORWARD::render(
@@ -770,11 +780,13 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 			imgState.n_contrib,
 			imgState.max_contrib,
 			background,
-			out_color), debug)
-
+			out_color,
+			stream), debug)
+			
 			 //printDevicePointer("out_color", out_color);
 			
-			CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);
+			CHECK_CUDA(cudaMemcpyAsync(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice,stream), debug);
+			
 			return std::make_tuple(num_rend, num_buck, std::vector<int>(), std::vector<int>());
 		}
 		
@@ -783,190 +795,11 @@ std::tuple<int,int,std::vector<int>,std::vector<int>> CudaRasterizer::Rasterizer
 
 	}
 
-
- 	
-	
-		
     }
 	
     
 
 
-
-std::tuple<int,int> CudaRasterizer::Rasterizer::forwardPre(
-	std::function<char* (size_t)> geometryBuffer,
-	std::function<char* (size_t)> binningBuffer,
-	std::function<char* (size_t)> imageBuffer,
-	std::function<char* (size_t)> sampleBuffer,
-	const int P, int D, int M,
-	const float* background,
-	const int width, int height,
-	const float* means3D,
-	const float* dc,
-	const float* shs,
-	const float* colors_precomp,
-	const float* opacities,
-	const float* scales,
-	const float scale_modifier,
-	const float* rotations,
-	const float* cov3D_precomp,
-	const float* viewmatrix,
-	const float* projmatrix,
-	const float* cam_pos,
-	const float tan_fovx, float tan_fovy,
-	const bool prefiltered,
-	float* out_color,
-	const int* ranges,
-	const int* gs_list,
-	const int num_rend,
-	int* radii,
-	bool debug,
-	const bool store
-	)
-{
-	
-	const float focal_y = height / (2.0f * tan_fovy);
-	const float focal_x = width / (2.0f * tan_fovx);
-
-	size_t chunk_size = required<GeometryState>(P);
-	char* chunkptr = geometryBuffer(chunk_size);
-	GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
-
-	if (radii == nullptr)
-	{
-		radii = geomState.internal_radii;
-	}
-
-	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
-	dim3 block(BLOCK_X, BLOCK_Y, 1);
-
-	// Dynamically resize image-based auxiliary buffers during training
-	size_t img_chunk_size = required<ImageState>(width * height);
-	char* img_chunkptr = imageBuffer(img_chunk_size);
-	ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
-
-	if (NUM_CHAFFELS != 3 && colors_precomp == nullptr)
-	{
-		throw std::runtime_error("For non-RGB, provide precomputed Gaussian colors!");
-	}
-
-	// Run preprocessing per-Gaussian (transformation, bounding, conversion of SHs to RGB)
-	CHECK_CUDA(FORWARD::preprocess(
-		P, D, M,
-		means3D,
-		(glm::vec3*)scales,
-		scale_modifier,
-		(glm::vec4*)rotations,
-		opacities,
-		dc,
-		shs,
-		geomState.clamped,
-		cov3D_precomp,
-		colors_precomp,
-		viewmatrix, projmatrix,
-		(glm::vec3*)cam_pos,
-		width, height,
-		focal_x, focal_y,
-		tan_fovx, tan_fovy,
-		radii,
-		geomState.means2D,
-		geomState.depths,
-		geomState.cov3D,
-		geomState.rgb,
-		geomState.conic_opacity,
-		tile_grid,
-		geomState.tiles_touched,
-		prefiltered
-	), debug)
-
-	// Compute prefix sum over full list of touched tile counts by Gaussians
-	// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
-	CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P), debug)
-
-	// Retrieve total number of Gaussian instances to launch and resize aux buffers
-	int num_rendered;
-	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
-	
-	size_t binning_chunk_size = required<BinningState>(num_rendered);
-	char* binning_chunkptr = binningBuffer(binning_chunk_size);
-	BinningState binningState = BinningState::fromChunk(binning_chunkptr, num_rendered);
-
-	// For each instance to be rendered, produce adequate [ tile | depth ] key 
-	// and corresponding dublicated Gaussian indices to be sorted
-	duplicateWithKeys << <(P + 255) / 256, 256 >> > (
-		P,
-		geomState.means2D,
-		geomState.conic_opacity,
-		geomState.depths,
-		geomState.point_offsets,
-		binningState.point_list_keys_unsorted,
-		binningState.point_list_unsorted,
-		radii,
-		tile_grid,
-		nullptr)
-	CHECK_CUDA(, debug)
-
-	int bit = getHigherMsb(tile_grid.x * tile_grid.y);
-
-	// Sort complete list of (duplicated) Gaussian indices by keys
-	CHECK_CUDA(cub::DeviceRadixSort::SortPairs(
-		binningState.list_sorting_space,
-		binningState.sorting_size,
-		binningState.point_list_keys_unsorted, binningState.point_list_keys,
-		binningState.point_list_unsorted, binningState.point_list,
-		num_rendered, 0, 32 + bit), debug)
-
-	CHECK_CUDA(cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2)), debug);
-
-	// Identify start and end of per-tile workloads in sorted list
-	if (num_rendered > 0)
-		identifyTileRanges << <(num_rendered + 255) / 256, 256 >> > (
-			num_rendered,
-			binningState.point_list_keys,
-			imgState.ranges);
-	CHECK_CUDA(, debug)
-
-	//OrderImg rangeAll = OrderImg::fromChunk(ranges,tile_grid.x * tile_grid.y);
-	//OrderBin gs_listAll = OrderBin::fromChunk(gs_list, num_rendered);
-
- 	// bucket count
-	int num_tiles = tile_grid.x * tile_grid.y;
-	perTileBucketCount<<<(num_tiles + 255) / 256, 256>>>(num_tiles, imgState.ranges, imgState.bucket_count);
-	CHECK_CUDA(cub::DeviceScan::InclusiveSum(imgState.bucket_count_scanning_space, imgState.bucket_count_scan_size, imgState.bucket_count, imgState.bucket_offsets, num_tiles), debug)
-	unsigned int bucket_sum;
-	CHECK_CUDA(cudaMemcpy(&bucket_sum, imgState.bucket_offsets + num_tiles - 1, sizeof(unsigned int), cudaMemcpyDeviceToHost), debug);
-	// create a state to store. size is number is the total number of buckets * block_size
-	size_t sample_chunk_size = required<SampleState>(bucket_sum);
-	char* sample_chunkptr = sampleBuffer(sample_chunk_size);
-	SampleState sampleState = SampleState::fromChunk(sample_chunkptr, bucket_sum);
-	 
-	// Let each tile blend its range of Gaussians independently in parallel
-	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
-		
-		CHECK_CUDA(FORWARD::render(
-		tile_grid, block,
-		imgState.ranges,
-		nullptr,
-		0,
-		nullptr,
-		binningState.point_list,
-		imgState.bucket_offsets, sampleState.bucket_to_tile,
-		sampleState.T, sampleState.ar,
-		width, height,
-		geomState.means2D,
-		feature_ptr,
-		geomState.conic_opacity,
-		imgState.accum_alpha,
-		imgState.n_contrib,
-		imgState.max_contrib,
-		background,
-		out_color), debug)
-	
-		//fprintf(stderr, "ranges dtype");
-	 	CHECK_CUDA(cudaMemcpy(imgState.pixel_colors, out_color, sizeof(float) * width * height * NUM_CHAFFELS, cudaMemcpyDeviceToDevice), debug);
-        return std::make_tuple(num_rend, bucket_sum);
-    
-}
 
 // Produce necessary gradients for optimization, corresponding
 // to forward render pass
@@ -987,6 +820,7 @@ void CudaRasterizer::Rasterizer::backward(
 	const float* campos,
 	const float tan_fovx, float tan_fovy,
 	const int* radii,
+	cudaStream_t stream,
 	char* geom_buffer,
 	char* binning_buffer,
 	char* img_buffer,
@@ -1007,17 +841,18 @@ void CudaRasterizer::Rasterizer::backward(
 	char* gs_list,
 	char* ranges)
 {
+	
 	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
 
-	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
+	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P,stream);
 	BinningState binningState;
-	ImageState imgState = ImageState::fromChunk(img_buffer, width * height);
+	ImageState imgState = ImageState::fromChunk(img_buffer, width * height,stream);
 	SampleState sampleState = SampleState::fromChunk(sample_buffer, B);
 	OrderImg rangesState;
 	OrderBin gs_listState;
 	
 	if(!precomp){
-		binningState = BinningState::fromChunk(binning_buffer, R);
+		binningState = BinningState::fromChunk(binning_buffer,R,stream);
 		//printf("not precomp");
 		
 	}
@@ -1079,7 +914,8 @@ void CudaRasterizer::Rasterizer::backward(
 		(float3*)dL_dmean2D,
 		(float4*)dL_dconic,
 		dL_dopacity,
-		dL_dcolor), debug)
+		dL_dcolor,
+		stream), debug)
 	}else{
 		
 		CHECK_CUDA(BACKWARD::renderPre(
@@ -1104,7 +940,8 @@ void CudaRasterizer::Rasterizer::backward(
 		(float3*)dL_dmean2D,
 		(float4*)dL_dconic,
 		dL_dopacity,
-		dL_dcolor), debug)
+		dL_dcolor,
+		stream), debug)
 	}
 	
 
@@ -1136,5 +973,7 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
 		(glm::vec4*)dL_drot,
-		precomp), debug)
+		precomp,
+		stream), debug)
+		
 }

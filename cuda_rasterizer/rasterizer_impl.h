@@ -40,7 +40,7 @@ namespace CudaRasterizer
 		uint32_t* point_offsets;
 		uint32_t* tiles_touched;
 
-		static GeometryState fromChunk(char*& chunk, size_t P);
+		static GeometryState fromChunk(char*& chunk, size_t P, cudaStream_t stream);
 	};
 
 	struct ImageState
@@ -58,7 +58,7 @@ namespace CudaRasterizer
 		float* accum_alpha;
 		char* contrib_scan;
 
-		static ImageState fromChunk(char*& chunk, size_t N);
+		static ImageState fromChunk(char*& chunk, size_t N, cudaStream_t stream);
 	};
 	struct OrderBin
 	{
@@ -85,7 +85,7 @@ namespace CudaRasterizer
 		char* scan_space;
 		char* list_sorting_space;
 
-		static BinningState fromChunk(char*& chunk, size_t P);
+		static BinningState fromChunk(char*& chunk, size_t P, cudaStream_t stream);
 	};
 
 	struct SampleState

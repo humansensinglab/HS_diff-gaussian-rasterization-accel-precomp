@@ -47,7 +47,8 @@ namespace FORWARD
 		float4* conic_opacity,
 		const dim3 grid,
 		uint32_t* tiles_touched,
-		bool prefiltered);
+		bool prefiltered,
+		cudaStream_t stream);
 
 	// Main rasterization method.
 	void render(
@@ -67,7 +68,8 @@ namespace FORWARD
 		uint32_t* n_contrib,
 		uint32_t* max_contrib,
 		const float* bg_color,
-		float* out_color);
+		float* out_color,
+		cudaStream_t stream);
 
 void renderPre(
 		const dim3 grid, dim3 block,

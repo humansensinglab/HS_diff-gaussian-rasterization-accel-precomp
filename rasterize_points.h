@@ -9,11 +9,18 @@
  * For inquiries contact  george.drettakis@inria.fr
  */
 
-#pragma once
+#include <cuda_runtime.h>
 #include <torch/extension.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
 #include <cstdio>
 #include <tuple>
 #include <string>
+#include <iostream>
+#include <functional>
+
+
 
 	
 std::tuple<int, int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
@@ -50,7 +57,7 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& sample_buffer
 	);
 
-std::tuple<int, int, std::vector<int>, std::vector<int>,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+/*std::tuple<int, int, std::vector<int>, std::vector<int>,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 RasterizeGaussiansPrecCUDA(
 	const torch::Tensor& background,
 	const torch::Tensor& means3D,
@@ -73,7 +80,7 @@ RasterizeGaussiansPrecCUDA(
 	const bool prefiltered,
 	const bool debug,
 	const bool store);
-
+*/
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
  RasterizeGaussiansBackwardCUDA(
  	const torch::Tensor& background,
@@ -101,8 +108,19 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& sampleBuffer,
 	const bool debug,
 	const bool precomp,
+	const bool graphable,
 	const torch::Tensor& gs_list,
-	const torch::Tensor& ranges);
+	const torch::Tensor& ranges,
+	const torch::Tensor& dL_dmeans3D_pre,
+	const torch::Tensor& dL_dmeans2D_pre,
+	const torch::Tensor& dL_dcolors_pre,
+	const torch::Tensor& dL_dconic_pre,
+	const torch::Tensor& dL_dopacity_pre,
+	const torch::Tensor& dL_dcov3D_pre,
+	const torch::Tensor& dL_ddc_pre,
+	const torch::Tensor& dL_dsh_pre,
+	const torch::Tensor& dL_dscales_pre,
+	const torch::Tensor& dL_drotations_pre);
 		
 torch::Tensor markVisible(
 		torch::Tensor& means3D,

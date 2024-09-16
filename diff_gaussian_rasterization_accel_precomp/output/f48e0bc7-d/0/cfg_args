@@ -1,0 +1,1 @@
+Namespace(sh_degree=3, source_path='/datasets/stadium_project/test_data_gs/ffff', model_path='./output/f48e0bc7-d', images='images', resolution=-1, white_background=False, data_device='cuda', eval=False, global_illumination=False, first_k_cams=52, first_frame_ply='', dataset_type='stadium', dataset_caching=True, densify_after_first=False, initialized=False)

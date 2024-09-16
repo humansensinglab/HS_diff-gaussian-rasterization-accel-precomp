@@ -773,7 +773,7 @@ PerGaussianRenderPreCUDA(
 		//atomicAdd(&dL_dconic2D[gaussian_idx].x, Register_dL_dconic2D_x);
 		//atomicAdd(&dL_dconic2D[gaussian_idx].y, Register_dL_dconic2D_y);
 		//atomicAdd(&dL_dconic2D[gaussian_idx].w, Register_dL_dconic2D_w);
-		//atomicAdd(&dL_dopacity[gaussian_idx], Register_dL_dopacity);
+		atomicAdd(&dL_dopacity[gaussian_idx], Register_dL_dopacity);
 		for (int ch = 0; ch < C; ++ch) {
 			atomicAdd(&dL_dcolors[gaussian_idx * C + ch], Register_dL_dcolors[ch]);
 		}
@@ -970,7 +970,8 @@ void BACKWARD::preprocess(
 	float* dL_dsh,
 	glm::vec3* dL_dscale,
 	glm::vec4* dL_drot,
-	bool precomp)
+	bool precomp,
+	cudaStream_t stream)
 {
 	// Propagate gradients for the path of 2D conic matrix computation. 
 	// Somewhat long, thus it is its own kernel rather than being part of 
@@ -978,7 +979,7 @@ void BACKWARD::preprocess(
 	// modified and gradient w.r.t. 3D covariance matrix has been computed.
 	
 	if(!precomp){
-		computeCov2DCUDA << <(P + 255) / 256, 256 >> > (
+		computeCov2DCUDA << <(P + 255) / 256, 256 ,0,stream>> > (
 		P,
 		means3D,
 		radii,
@@ -998,7 +999,7 @@ void BACKWARD::preprocess(
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
 	// matrix gradients to scale and rotation.
-	preprocessCUDA<NUM_CHAFFELS> << < (P + 255) / 256, 256 >> > (
+	preprocessCUDA<NUM_CHAFFELS> << < (P + 255) / 256, 256,0,stream >> > (
 		P, D, M,
 		(float3*)means3D,
 		radii,
@@ -1041,10 +1042,11 @@ void BACKWARD::render(
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,
 	float* dL_dopacity,
-	float* dL_dcolors)
+	float* dL_dcolors,
+	cudaStream_t stream)
 {
 	const int THREADS = 32;
-	PerGaussianRenderCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS>>>(
+	PerGaussianRenderCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS,0,stream>>>(
 		ranges,
 		point_list,
 		W, H, B,
@@ -1087,10 +1089,11 @@ void BACKWARD::renderPre(
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,
 	float* dL_dopacity,
-	float* dL_dcolors)
+	float* dL_dcolors,
+	cudaStream_t stream)
 {
 	const int THREADS = 32;
-	PerGaussianRenderPreCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS>>>(
+	PerGaussianRenderPreCUDA<NUM_CHAFFELS> <<<((B*32) + THREADS - 1) / THREADS,THREADS,0,stream>>>(
 		ranges,
 		point_list,
 		W, H, B,

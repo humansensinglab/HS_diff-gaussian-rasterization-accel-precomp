@@ -40,7 +40,8 @@ namespace BACKWARD
 		float3* dL_dmean2D,
 		float4* dL_dconic2D,
 		float* dL_dopacity,
-		float* dL_dcolors);
+		float* dL_dcolors,
+		cudaStream_t stream);
 
 	void renderPre(
 		const dim3 grid, dim3 block,
@@ -62,7 +63,8 @@ namespace BACKWARD
 		float3* dL_dmean2D,
 		float4* dL_dconic2D,
 		float* dL_dopacity,
-		float* dL_dcolors);
+		float* dL_dcolors,
+		cudaStream_t stream);
 
 
 	void preprocess(
@@ -90,7 +92,8 @@ namespace BACKWARD
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
 		glm::vec4* dL_drot,
-		bool precomp);
+		bool precomp,
+		cudaStream_t stream);
 }
 
 #endif

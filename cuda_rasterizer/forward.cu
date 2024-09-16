@@ -597,10 +597,11 @@ void FORWARD::render(
 	uint32_t* n_contrib,
 	uint32_t* max_contrib,
 	const float* bg_color,
-	float* out_color)
+	float* out_color,
+	cudaStream_t stream)
 {
 	
-	renderCUDA<NUM_CHAFFELS> << <grid, block >> > (
+	renderCUDA<NUM_CHAFFELS> << <grid, block ,0,stream>> > (
 		ranges,
 		ranges_c,
 		point_list_c,
@@ -676,9 +677,10 @@ void FORWARD::preprocess(int P, int D, int M,
 	float4* conic_opacity,
 	const dim3 grid,
 	uint32_t* tiles_touched,
-	bool prefiltered)
+	bool prefiltered,
+	cudaStream_t stream)
 {
-	preprocessCUDA<NUM_CHAFFELS> << <(P + 255) / 256, 256 >> > (
+	preprocessCUDA<NUM_CHAFFELS> << <(P + 255) / 256, 256 ,0, stream>> > (
 		P, D, M,
 		means3D,
 		scales,
