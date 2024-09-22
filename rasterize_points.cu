@@ -310,16 +310,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const bool graphable,
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
-	const torch::Tensor& dL_dmeans3D_pre,
-	const torch::Tensor& dL_dmeans2D_pre,
-	const torch::Tensor& dL_dcolors_pre,
-	const torch::Tensor& dL_dconic_pre,
-	const torch::Tensor& dL_dopacity_pre,
-	const torch::Tensor& dL_dcov3D_pre,
 	const torch::Tensor& dL_ddc_pre,
 	const torch::Tensor& dL_dsh_pre,
-	const torch::Tensor& dL_dscales_pre,
-	const torch::Tensor& dL_drotations_pre
+	const torch::Tensor& dL_dcolors_pre
 	) 
 {
 
@@ -335,7 +328,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   }
 
 
-  if(!graphable){
+  if(!precomp){
 	
 
   
@@ -398,7 +391,14 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dmeans3D, dL_dcov3D, dL_ddc, dL_dsh, dL_dscales, dL_drotations);
 		}
 	else{
-
+		
+			torch::Tensor dL_dscales = torch::zeros({P, 3}, means3D.options());
+			torch::Tensor dL_drotations = torch::zeros({P, 4}, means3D.options());
+			torch::Tensor dL_dmeans3D = torch::zeros({P, 3}, means3D.options());
+			torch::Tensor dL_dmeans2D = torch::zeros({P, 3}, means3D.options());
+			torch::Tensor dL_dconic = torch::zeros({P, 2, 2}, means3D.options());
+			torch::Tensor dL_dopacity = torch::zeros({P, 1}, means3D.options());
+			torch::Tensor dL_dcov3D = torch::zeros({P, 6}, means3D.options());
 		if(P != 0)
 	{  
 		CudaRasterizer::Rasterizer::backward(P, degree, M, R, B,
@@ -424,16 +424,16 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 		reinterpret_cast<char*>(imageBuffer.contiguous().data_ptr()),
 		reinterpret_cast<char*>(sampleBuffer.contiguous().data_ptr()),
 		dL_dout_color.contiguous().data<float>(),
-		dL_dmeans2D_pre.contiguous().data<float>(),
-		dL_dconic_pre.contiguous().data<float>(),  
-		dL_dopacity_pre.contiguous().data<float>(),
+		dL_dmeans2D.contiguous().data<float>(),
+		dL_dconic.contiguous().data<float>(),  
+		dL_dopacity.contiguous().data<float>(),
 		dL_dcolors_pre.contiguous().data<float>(),
-		dL_dmeans3D_pre.contiguous().data<float>(),
-		dL_dcov3D_pre.contiguous().data<float>(),
+		dL_dmeans3D.contiguous().data<float>(),
+		dL_dcov3D.contiguous().data<float>(),
 		dL_ddc_pre.contiguous().data<float>(),
 		dL_dsh_pre.contiguous().data<float>(),
-		dL_dscales_pre.contiguous().data<float>(),
-		dL_drotations_pre.contiguous().data<float>(),
+		dL_dscales.contiguous().data<float>(),
+		dL_drotations.contiguous().data<float>(),
 		debug,
 		precomp,
 		reinterpret_cast<char*>(gs_list.contiguous().data_ptr()),

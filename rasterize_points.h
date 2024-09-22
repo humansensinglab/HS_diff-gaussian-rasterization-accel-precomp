@@ -111,16 +111,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const bool graphable,
 	const torch::Tensor& gs_list,
 	const torch::Tensor& ranges,
-	const torch::Tensor& dL_dmeans3D_pre,
-	const torch::Tensor& dL_dmeans2D_pre,
-	const torch::Tensor& dL_dcolors_pre,
-	const torch::Tensor& dL_dconic_pre,
-	const torch::Tensor& dL_dopacity_pre,
-	const torch::Tensor& dL_dcov3D_pre,
 	const torch::Tensor& dL_ddc_pre,
 	const torch::Tensor& dL_dsh_pre,
-	const torch::Tensor& dL_dscales_pre,
-	const torch::Tensor& dL_drotations_pre);
+	const torch::Tensor& dL_dcolors_pre);
 		
 torch::Tensor markVisible(
 		torch::Tensor& means3D,
