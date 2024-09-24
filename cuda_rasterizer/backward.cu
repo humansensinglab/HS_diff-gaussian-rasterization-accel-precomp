@@ -375,7 +375,9 @@ __global__ void preprocessCUDA(
 	if (idx >= P || !(radii[idx] > 0))
 		return;
 
-	if(!precomp){
+	if(!precomp)
+	{
+
 		float3 m = means[idx];
 
 		// Taking care of gradients from the screenspace points
@@ -402,7 +404,7 @@ __global__ void preprocessCUDA(
 		// Compute gradient updates due to computing covariance from scale/rotation
 		if (scales)
 			computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
-		}
+	}
 
 	else{
 		if(shs)
@@ -771,12 +773,6 @@ PerGaussianRenderPreCUDA(
 
 	// finally add the gradients using atomics
 	if (valid_splat) {
-		//atomicAdd(&dL_dmean2D[gaussian_idx].x, Register_dL_dmean2D_x);
-		//atomicAdd(&dL_dmean2D[gaussian_idx].y, Register_dL_dmean2D_y);
-		//atomicAdd(&dL_dconic2D[gaussian_idx].x, Register_dL_dconic2D_x);
-		//atomicAdd(&dL_dconic2D[gaussian_idx].y, Register_dL_dconic2D_y);
-		//atomicAdd(&dL_dconic2D[gaussian_idx].w, Register_dL_dconic2D_w);
-		//atomicAdd(&dL_dopacity[gaussian_idx], Register_dL_dopacity);
 		for (int ch = 0; ch < C; ++ch) {
 			atomicAdd(&dL_dcolors[gaussian_idx * C + ch], Register_dL_dcolors[ch]);
 		}
@@ -982,6 +978,7 @@ void BACKWARD::preprocess(
 	// modified and gradient w.r.t. 3D covariance matrix has been computed.
 	
 	if(!precomp){
+
 		computeCov2DCUDA << <(P + 255) / 256, 256 ,0,stream>> > (
 		P,
 		means3D,
@@ -995,11 +992,9 @@ void BACKWARD::preprocess(
 		dL_dconic,
 		(float3*)dL_dmean3D,
 		dL_dcov3D);
-
 	}
 
-
-	// Propagate gradients for remaining steps: finish 3D mean gradients,
+    // Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
 	// matrix gradients to scale and rotation.
 	preprocessCUDA<NUM_CHAFFELS> << < (P + 255) / 256, 256,0,stream >> > (

@@ -105,18 +105,10 @@ class _RasterizeGaussians(torch.autograd.Function):
         
 
         if raster_settings.using_precomp:
-               
-               #validate_and_print_arguments(*args)
-               #print("i")
-            r = nvtx.start_range("precomp")
-            # print("we are using" + str(raster_settings.num_rend))
-            
-
+                   
+            # r = nvtx.start_range("precomp")
             num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
-               
-            
-            
-            nvtx.end_range(r)
+            # nvtx.end_range(r)
           
             ctx.raster_settings = raster_settings
             ctx.dl_ddc = raster_settings.dl_ddc
@@ -138,17 +130,10 @@ class _RasterizeGaussians(torch.autograd.Function):
                     print("\nAn error occured in forward. Please forward snapshot_fw.dump for debugging.")
                     raise ex
             else:
-                #validate_and_print_arguments(*args)
-                r = nvtx.start_range("Non precomp")
+                # r = nvtx.start_range("Non precomp")
                 num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)
-                nvtx.end_range(r)
+                # nvtx.end_range(r)
 
-                # if(raster_settings.store_ordering):
-                    # print("Storing")
-                # else:
-                    # print("no se que hago aqui")
-                
-           
             # Keep relevant tensors for backward
             ctx.raster_settings = raster_settings
             ctx.num_rendered = num_rendered
@@ -157,6 +142,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             ctx.dl_dsh = raster_settings.dl_dsh
             ctx.dl_dcolors= raster_settings.dl_dcolors
             ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, geomBuffer, binningBuffer, imgBuffer, sampleBuffer)
+            
             if raster_settings.store_ordering:
                 return color, radii, gaussian_list, ranges, None,num_rendered, num_buckets, imgBuffer.size(), geomBuffer.size(), sampleBuffer.size()
             return color, radii,  None, None, None,num_rendered, 0,0,0,0
@@ -206,8 +192,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raster_settings.dl_dsh,
                 raster_settings.dl_dcolors)
         
-        #validate_and_print_arguments(*args)
-        
         # Compute gradients for relevant tensors by invoking backward method
         if raster_settings.debug:
             cpu_args = cpu_deep_copy_tuple(args) # Copy them before they can be corrupted
@@ -218,13 +202,12 @@ class _RasterizeGaussians(torch.autograd.Function):
                 print("\nAn error occured in backward. Writing snapshot_bw.dump for debugging.\n")
                 raise ex
         else:
-             r = nvtx.start_range("backward")
-             grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_dc, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)
-             nvtx.end_range(r)
+            #  r = nvtx.start_range("backward")
+            grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_dc, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)
+            #  nvtx.end_range(r)
                 
                    
         if(not raster_settings.graphable):
-        # if(1==1):
             grads = (
                 grad_means3D,
                 grad_means2D,
@@ -238,7 +221,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 None
             )
         else:  
-           
             grads= (
                 None,
                 None,
@@ -252,8 +234,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 None
          ) 
         
-
-
         return grads
 
 class GaussianRasterizationSettings(NamedTuple):
