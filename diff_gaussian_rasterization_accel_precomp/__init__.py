@@ -108,15 +108,15 @@ class _RasterizeGaussians(torch.autograd.Function):
                
                #validate_and_print_arguments(*args)
                #print("i")
-               #r = nvtx.start_range("precomp")
-               
+            r = nvtx.start_range("precomp")
+            # print("we are using" + str(raster_settings.num_rend))
             
 
             num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)   
                
             
             
-            #nvtx.end_range(r)
+            nvtx.end_range(r)
           
             ctx.raster_settings = raster_settings
             ctx.dl_ddc = raster_settings.dl_ddc
@@ -125,7 +125,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             ctx.num_rendered = num_rendered
             ctx.num_buckets = num_buckets
             ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh, raster_settings.geom_buffer, binningBuffer, raster_settings.img_buffer, raster_settings.sample_buffer)
-            #ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh,geomBuffer , binningBuffer, imgBuffer, sampleBuffer)
+            # ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, dc, sh,geomBuffer , binningBuffer, imgBuffer, sampleBuffer)
             return color, radii, None, None,None, num_rendered,0,0,0,0
         else:
             # Invoke C++/CUDA rasterizer
@@ -142,6 +142,11 @@ class _RasterizeGaussians(torch.autograd.Function):
                 r = nvtx.start_range("Non precomp")
                 num_rendered, num_buckets,  ranges, gaussian_list, color, radii, geomBuffer, binningBuffer, imgBuffer, sampleBuffer = _C.rasterize_gaussians(*args)
                 nvtx.end_range(r)
+
+                # if(raster_settings.store_ordering):
+                    # print("Storing")
+                # else:
+                    # print("no se que hago aqui")
                 
            
             # Keep relevant tensors for backward
@@ -218,7 +223,7 @@ class _RasterizeGaussians(torch.autograd.Function):
              nvtx.end_range(r)
                 
                    
-        if(not raster_settings.using_precomp):
+        if(not raster_settings.graphable):
         # if(1==1):
             grads = (
                 grad_means3D,

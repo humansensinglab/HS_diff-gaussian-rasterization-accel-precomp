@@ -328,7 +328,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   }
 
 
-  if(!precomp){
+  if(!graphable){
 	
 
   
